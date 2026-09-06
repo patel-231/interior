@@ -1,0 +1,6 @@
+{
+  "name": "SiteFlow",
+  "description": "Mobile-first site management application for interior design firms, managing active sites, daily tasks, material requests, and real-time site updates.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
