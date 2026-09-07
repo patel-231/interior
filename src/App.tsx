@@ -1,275 +1,616 @@
-import React, { useEffect, useState } from 'react';
-import { auth, db } from './lib/firebase';
-import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, User } from 'firebase/auth';
-import { doc, getDoc, collection, query, where, getDocs, addDoc, setDoc } from 'firebase/firestore';
-import { LogOut, LayoutDashboard, Briefcase, CheckSquare, ShieldAlert } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  UserRole,
+  Project,
+  Task,
+  MaterialRequest,
+  IssueReport,
+  IssuePriority,
+  IssueComment,
+  IssueStatus,
+  SiteUpdate,
+  ProjectFile,
+  TaskStatus,
+} from './types';
+import { DevRoleSwitcher } from './components/DevRoleSwitcher';
+import { Header } from './components/Header';
+import { BottomNav, OwnerTab, WorkerTab } from './components/BottomNav';
+import { OwnerHome } from './components/OwnerHome';
+import { WorkerHome } from './components/WorkerHome';
+import { ProjectsView } from './components/ProjectsView';
+import { MaterialsView } from './components/MaterialsView';
+import { OwnerIssuesScreen } from './components/OwnerIssuesScreen';
+import { TasksView } from './components/TasksView';
+import { UpdatesFeedView } from './components/UpdatesFeedView';
+import { ProfileView } from './components/ProfileView';
+import { MoreView } from './components/MoreView';
+import { ProjectDetailModal } from './components/ProjectDetailModal';
+import { ActionModal, ModalType } from './components/modals/ActionModal';
+import { AddMenuModal } from './components/modals/AddMenuModal';
+import { NotificationsModal } from './components/modals/NotificationsModal';
+import { WorkerTaskDetailModal } from './components/worker/WorkerTaskDetailModal';
+import { WorkerProgressUpdateModal, ProgressChoice } from './components/worker/WorkerProgressUpdateModal';
+import { WorkerPhotoUploadModal } from './components/worker/WorkerPhotoUploadModal';
+import { WorkerMaterialRequestModal } from './components/worker/WorkerMaterialRequestModal';
+import { WorkerReportProblemModal } from './components/worker/WorkerReportProblemModal';
+import { Login } from './components/Login';
+import { subscribeToCollection, updateDocument, addDocument, seedInitialData } from './lib/dataService';
+import { logOut } from './lib/firebase';
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [userData, setUserData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
+  const [role, setRole] = useState<UserRole>('OWNER');
 
-  // Auth form state
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [isLogin, setIsLogin] = useState(true);
+  const [ownerTab, setOwnerTab] = useState<OwnerTab>('Home');
+  const [workerTab, setWorkerTab] = useState<WorkerTab>('Home');
+  const [workerSiteId, setWorkerSiteId] = useState<string>('proj-1');
 
-  // Data state
-  const [projects, setProjects] = useState<any[]>([]);
-  const [tasks, setTasks] = useState<any[]>([]);
+  // Core Data State
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [materialRequests, setMaterialRequests] = useState<MaterialRequest[]>([]);
+  const [issues, setIssues] = useState<IssueReport[]>([]);
+  const [updates, setUpdates] = useState<SiteUpdate[]>([]);
+  const [files, setFiles] = useState<ProjectFile[]>([]);
 
+  // Modal States
+  const [selectedProjectForModal, setSelectedProjectForModal] = useState<Project | null>(null);
+  const [actionModalType, setActionModalType] = useState<ModalType>(null);
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState<boolean>(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
+
+  // Dedicated Worker Modal States
+  const [workerSelectedTask, setWorkerSelectedTask] = useState<Task | null>(null);
+  const [isWorkerProgressUpdateOpen, setIsWorkerProgressUpdateOpen] = useState<boolean>(false);
+  const [workerProgressUpdateTask, setWorkerProgressUpdateTask] = useState<Task | null>(null);
+  const [isWorkerPhotoOpen, setIsWorkerPhotoOpen] = useState<boolean>(false);
+  const [isWorkerMaterialOpen, setIsWorkerMaterialOpen] = useState<boolean>(false);
+  const [isWorkerProblemOpen, setIsWorkerProblemOpen] = useState<boolean>(false);
+  const [selectedIssueIdForNav, setSelectedIssueIdForNav] = useState<string | null>(null);
+
+  // Firebase Subscriptions
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-          if (userDoc.exists()) {
-            setUserData(userDoc.data());
-            await fetchData(userDoc.data());
-          }
-        } catch (error) {
-          console.error("Error fetching user role", error);
-        }
-      } else {
-        setUserData(null);
-      }
-      setLoading(false);
-    });
+    if (!user) return;
+    const targetOwnerId = user.role === 'OWNER' ? user.id : user.employerId;
+    
+    // Attempt seed
+    if (user.role === 'OWNER') seedInitialData(targetOwnerId);
 
-    return () => unsubscribe();
-  }, []);
+    const unsubProjects = subscribeToCollection<Project>('projects', targetOwnerId, setProjects);
+    const unsubTasks = subscribeToCollection<Task>('tasks', targetOwnerId, setTasks);
+    const unsubMaterials = subscribeToCollection<MaterialRequest>('materialRequests', targetOwnerId, setMaterialRequests);
+    const unsubIssues = subscribeToCollection<IssueReport>('issueReports', targetOwnerId, setIssues);
+    const unsubUpdates = subscribeToCollection<SiteUpdate>('siteUpdates', targetOwnerId, setUpdates);
+    const unsubFiles = subscribeToCollection<ProjectFile>('projectFiles', targetOwnerId, setFiles);
 
-  const fetchData = async (uData: any) => {
-    try {
-      const qProjects = query(collection(db, 'projects'), where('orgId', '==', uData.orgId));
-      const projSnapshot = await getDocs(qProjects);
-      setProjects(projSnapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    return () => {
+      unsubProjects();
+      unsubTasks();
+      unsubMaterials();
+      unsubIssues();
+      unsubUpdates();
+      unsubFiles();
+    };
+  }, [user]);
 
-      const qTasks = query(collection(db, 'tasks'), where('orgId', '==', uData.orgId));
-      const taskSnapshot = await getDocs(qTasks);
-      setTasks(taskSnapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (e) {
-      console.error("Fetch error - permissions might deny access:", e);
-    }
-  };
-
-  const handleAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      if (isLogin) {
-        await signInWithEmailAndPassword(auth, email, password);
-      } else {
-        await createUserWithEmailAndPassword(auth, email, password);
-        // Note: In a real app, you would create the user document via cloud function or securely.
-        // For testing, we just create a worker role for the demo org.
-        // We'll skip registration here as rule requires owner/admin to modify roles safely,
-        // but for simplicity we allow initial creation if we were to loosen rules.
-        alert("Registration is restricted. Ask your admin to create your account.");
-      }
-    } catch (error: any) {
-      alert(error.message);
-    }
-  };
-
-  const seedData = async () => {
-    if (!userData || !['owner', 'admin'].includes(userData.role)) return;
-    try {
-      const orgId = userData.orgId;
-      const projRef = await addDoc(collection(db, 'projects'), {
-        orgId,
-        name: 'New Site Design',
-        status: 'In Progress',
-        assignedWorkers: ['some_worker_id'] // you can replace this with actual worker uids
-      });
-      await addDoc(collection(db, 'project_financials'), {
-        orgId,
-        projectId: projRef.id,
-        profit: 50000,
-        clientPayment: 100000
-      });
-      await addDoc(collection(db, 'tasks'), {
-        orgId,
-        projectId: projRef.id,
-        title: 'Paint the living room',
-        assignedTo: 'some_worker_id'
-      });
-      alert("Seeded test data! Refresh to see.");
-      fetchData(userData);
-    } catch (e) {
-      console.error(e);
-      alert("Error seeding data");
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900"></div>
-      </div>
-    );
-  }
+  const currentWorkerProject = projects.find((p) => p.id === workerSiteId) || projects[0];
 
   if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="max-w-md w-full bg-white p-8 rounded-xl shadow-sm border border-gray-100">
-          <h1 className="text-2xl font-bold mb-6 text-center text-slate-900">Interior Design Platform</h1>
-          <form onSubmit={handleAuth} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-slate-900 focus:outline-none"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-slate-900 focus:outline-none"
-                required
-              />
-            </div>
-            <button
-              type="submit"
-              className="w-full bg-slate-900 text-white rounded-lg px-4 py-2 font-medium hover:bg-slate-800 transition-colors"
-            >
-              {isLogin ? 'Sign In' : 'Register'}
-            </button>
-          </form>
-          <div className="mt-4 text-center">
-            <button
-              onClick={() => setIsLogin(!isLogin)}
-              className="text-sm text-slate-600 hover:text-slate-900"
-            >
-              {isLogin ? "Need an account? Register" : "Already have an account? Sign in"}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    return <Login onLoginSuccess={(u) => {
+      setRole(u.role);
+      setUser(u);
+    }} />;
   }
 
-  const isManager = userData?.role && ['owner', 'admin', 'project_manager', 'supervisor'].includes(userData.role);
+  const targetOwnerId = user.role === 'OWNER' ? user.id : user.employerId;
+
+  // Actions
+  const handleToggleTaskCompletion = async (taskId: string) => {
+    const t = tasks.find(x => x.id === taskId);
+    if(!t) return;
+    const nextCompleted = !t.isCompleted;
+    await updateDocument('tasks', taskId, {
+      isCompleted: nextCompleted,
+      status: nextCompleted ? 'Completed' : 'In Progress',
+      progress: nextCompleted ? 100 : (t.progress ?? 50),
+    });
+  };
+
+  const handleUpdateTaskStatus = async (taskId: string, newStatus: TaskStatus) => {
+    const t = tasks.find(x => x.id === taskId);
+    if(!t) return;
+    await updateDocument('tasks', taskId, {
+      status: newStatus,
+      isCompleted: newStatus === 'Completed',
+      progress: newStatus === 'Completed' ? 100 : (newStatus === 'Not Started' ? 0 : (t.progress || 50)),
+    });
+  };
+
+  const handleUpdateTaskProgress = async (taskId: string, newProgress: number) => {
+    await updateDocument('tasks', taskId, {
+      progress: newProgress,
+      isCompleted: newProgress >= 100,
+      status: newProgress >= 100 ? 'Completed' : (newProgress === 0 ? 'Not Started' : 'In Progress'),
+    });
+  };
+
+  const handleApproveMaterial = async (id: string) => {
+    await updateDocument('materialRequests', id, { status: 'Approved' });
+  };
+
+  const handleRejectMaterial = async (id: string) => {
+    await updateDocument('materialRequests', id, { status: 'Rejected' });
+  };
+
+  const handleResolveIssue = async (issueId: string) => {
+    handleToggleResolveIssue(issueId);
+  };
+
+  const handleToggleResolveIssue = async (issueId: string) => {
+    const i = issues.find(x => x.id === issueId);
+    if(!i) return;
+    const willResolve = i.status !== 'Resolved';
+    const newStatus: IssueStatus = willResolve ? 'Resolved' : 'Open';
+    const newComment: IssueComment = {
+      id: `comm-${Date.now()}`,
+      author: user.name || 'User',
+      authorRole: user.role,
+      text: willResolve ? 'Marked snag as Resolved.' : 'Reopened snag.',
+      createdAt: 'Just now',
+    };
+    await updateDocument('issueReports', issueId, {
+      status: newStatus,
+      actionTaken: willResolve ? 'Resolved by verification.' : i.actionTaken,
+      comments: [...(i.comments || []), newComment],
+    });
+  };
+
+  const handleAssignIssue = async (issueId: string, assignedTo: string) => {
+    const i = issues.find(x => x.id === issueId);
+    if(!i) return;
+    const newStatus: IssueStatus = i.status === 'Open' ? 'In Progress' : i.status;
+    const newComment: IssueComment = {
+      id: `comm-${Date.now()}`,
+      author: user.name || 'User',
+      authorRole: user.role,
+      text: `Assigned snag to ${assignedTo}.`,
+      createdAt: 'Just now',
+    };
+    await updateDocument('issueReports', issueId, {
+      assignedTo,
+      status: newStatus,
+      comments: [...(i.comments || []), newComment],
+    });
+  };
+
+  const handleAddIssueComment = async (issueId: string, text: string) => {
+    const i = issues.find(x => x.id === issueId);
+    if(!i) return;
+    const newComment: IssueComment = {
+      id: `comm-${Date.now()}`,
+      author: user.name || 'User',
+      authorRole: user.role,
+      text,
+      createdAt: 'Just now',
+    };
+    await updateDocument('issueReports', issueId, {
+      comments: [...(i.comments || []), newComment],
+    });
+  };
+
+  const handleChangeIssuePriority = async (issueId: string, priority: IssuePriority) => {
+    const i = issues.find(x => x.id === issueId);
+    if(!i) return;
+    const newComment: IssueComment = {
+      id: `comm-${Date.now()}`,
+      author: user.name || 'User',
+      authorRole: user.role,
+      text: `Changed priority from ${i.priority} to ${priority}.`,
+      createdAt: 'Just now',
+    };
+    await updateDocument('issueReports', issueId, {
+      priority,
+      severity: priority === 'Urgent' ? 'Critical' : priority === 'High' ? 'Medium' : 'Low',
+      comments: [...(i.comments || []), newComment],
+    });
+  };
+
+  const handleCreateTaskFromIssue = async (issueId: string, taskData: Partial<Task>) => {
+    const targetIssue = issues.find((i) => i.id === issueId);
+    if (!targetIssue) return;
+
+    const newTaskId = `task-${Date.now()}`;
+    const newTask: Task = {
+      id: newTaskId,
+      ownerId: targetOwnerId,
+      projectId: targetIssue.projectId,
+      projectName: targetIssue.projectName,
+      title: taskData.title || `Fix: ${targetIssue.title}`,
+      room: targetIssue.room || 'General',
+      assignedTo: taskData.assignedTo || 'Unassigned',
+      dueDate: taskData.dueDate || 'ASAP',
+      priority: taskData.priority || 'Medium',
+      isCompleted: false,
+      progress: 0,
+      status: 'Not Started',
+      category: 'Other',
+      notes: taskData.notes || '',
+    };
+    await addDocument('tasks', newTaskId, newTask);
+
+    const newUpdate: SiteUpdate = {
+      id: `up-${Date.now()}`,
+      ownerId: targetOwnerId,
+      projectId: newTask.projectId,
+      projectName: newTask.projectName,
+      author: user.name || 'User',
+      authorRole: user.role,
+      timestamp: 'Just now',
+      room: newTask.room,
+      description: `Task created from snag: "${newTask.title}" for ${newTask.assignedTo}.`,
+      type: 'Snag',
+      tags: [newTask.category, 'Task Escalation'],
+    };
+    await addDocument('siteUpdates', newUpdate.id, newUpdate);
+  };
+
+  const handleUpdateProjectProgress = async (projectId: string, newProgress: number) => {
+    const p = projects.find(x => x.id === projectId);
+    if(!p) return;
+    const status = newProgress >= 100 ? 'Completed' : p.status;
+    await updateDocument('projects', projectId, { progress: newProgress, status });
+  };
+
+  const handleAddUpdate = async (newUpdate: SiteUpdate) => {
+    await addDocument('siteUpdates', newUpdate.id, { ...newUpdate, ownerId: targetOwnerId });
+  };
+
+  const handleAddMaterialRequest = async (newRequest: MaterialRequest) => {
+    await addDocument('materialRequests', newRequest.id, { ...newRequest, ownerId: targetOwnerId });
+  };
+
+  const handleAddIssue = async (newIssue: IssueReport) => {
+    await addDocument('issueReports', newIssue.id, { ...newIssue, ownerId: targetOwnerId });
+    const newUpdate: SiteUpdate = {
+      id: `up-${Date.now()}`,
+      ownerId: targetOwnerId,
+      projectId: newIssue.projectId,
+      projectName: newIssue.projectName,
+      author: newIssue.reportedBy,
+      authorRole: 'Site Team',
+      timestamp: 'Just now',
+      room: newIssue.room || 'General Area',
+      description: `[SNAG REPORTED]: ${newIssue.title} (${newIssue.category} • Priority: ${newIssue.priority}). ${newIssue.description}`,
+      type: 'Snag',
+      imageUrl: newIssue.imageUrl,
+      tags: [newIssue.category, newIssue.priority, 'Snag'],
+    };
+    await addDocument('siteUpdates', newUpdate.id, newUpdate);
+  };
+
+  const handleAddProject = async (newProject: Project) => {
+    await addDocument('projects', newProject.id, { ...newProject, ownerId: targetOwnerId });
+  };
+
+  const handleAddTask = async (newTask: Task) => {
+    await addDocument('tasks', newTask.id, { ...newTask, ownerId: targetOwnerId });
+  };
+
+  const handleSaveWorkerProgressUpdate = async (
+    taskId: string,
+    progressChoice: ProgressChoice,
+    exactPercentage: number,
+    photos: string[],
+    note: string
+  ) => {
+    const targetTask = tasks.find((t) => t.id === taskId);
+    if (!targetTask) return;
+
+    const newStatus: TaskStatus =
+      progressChoice === 'Completed' || exactPercentage >= 100
+        ? 'Completed'
+        : progressChoice === 'Not Started'
+        ? 'Not Started'
+        : 'In Progress';
+    const isCompleted = newStatus === 'Completed';
+
+    await updateDocument('tasks', taskId, {
+      progress: exactPercentage,
+      status: newStatus,
+      isCompleted,
+      photos: photos.length > 0 ? [...(targetTask.photos || []), ...photos] : targetTask.photos,
+      notes: note ? (targetTask.notes ? `${targetTask.notes} • ${note}` : note) : targetTask.notes,
+    });
+
+    const newUpdate: SiteUpdate = {
+      id: `up-${Date.now()}`,
+      ownerId: targetOwnerId,
+      projectId: targetTask.projectId,
+      projectName: targetTask.projectName,
+      author: user.name || 'Site Worker Team',
+      authorRole: 'Site Worker',
+      timestamp: 'Just now',
+      room: targetTask.room,
+      description: note || `Updated progress to ${exactPercentage}% (${progressChoice}) on ${targetTask.title}.`,
+      type: 'Progress',
+      imageUrl: photos[0] || undefined,
+      progressPercentage: exactPercentage,
+      tags: [targetTask.category, targetTask.room, progressChoice],
+    };
+    await addDocument('siteUpdates', newUpdate.id, newUpdate);
+
+    // Simple avg project progress (Note: fetching all tasks fresh from local state is fine)
+    const projectTasks = tasks
+      .map((t) => (t.id === taskId ? { ...t, progress: exactPercentage } : t))
+      .filter((t) => t.projectId === targetTask.projectId);
+    const avgProgress = Math.round(
+      projectTasks.reduce((acc, t) => acc + (t.progress || 0), 0) / (projectTasks.length || 1)
+    );
+    const p = projects.find(x => x.id === targetTask.projectId);
+    if (p && avgProgress > p.progress) {
+      await updateDocument('projects', p.id, { progress: avgProgress });
+    }
+  };
+
+  const handleSelectOwnerTab = (tab: OwnerTab) => {
+    if (tab === 'Add') setIsAddMenuOpen(true);
+    else setOwnerTab(tab);
+  };
+
+  const handleSelectWorkerTab = (tab: WorkerTab) => {
+    if (tab === 'Add Update') {
+      setWorkerProgressUpdateTask(null);
+      setIsWorkerProgressUpdateOpen(true);
+    } else {
+      setWorkerTab(tab);
+    }
+  };
+
+  const pendingMaterialsCount = materialRequests.filter((m) => m.status === 'Pending').length;
+  const pendingTasksCount = tasks.filter((t) => t.projectId === workerSiteId && !t.isCompleted).length;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <LayoutDashboard className="w-6 h-6 text-slate-900" />
-          <h1 className="text-xl font-bold text-slate-900">Interior Design Platform</h1>
+    <div className="min-h-screen bg-[#F5F4F0] text-[#1E2022] font-['Plus_Jakarta_Sans'] antialiased flex flex-col selection:bg-amber-200 selection:text-zinc-900">
+      <div className="bg-zinc-900 text-white p-2 text-center text-xs flex justify-between px-4">
+        <span>Logged in as: {user.name} ({role})</span>
+        <button onClick={async () => { await logOut(); setUser(null); }} className="underline">Sign out</button>
+      </div>
+      <Header
+        currentRole={role}
+        workerProjectName={currentWorkerProject?.name}
+        onOpenNotifications={() => setIsNotificationsOpen(true)}
+      />
+
+      <div className="flex-1 overflow-y-auto pb-20 relative">
+        <main className="max-w-md mx-auto w-full min-h-full">
+          {role === 'OWNER' ? (
+            <>
+              {ownerTab === 'Home' && (
+                <OwnerHome
+                  projects={projects}
+                  updates={updates}
+                  issues={issues}
+                  materialRequests={materialRequests}
+                  onSelectProject={(p) => setSelectedProjectForModal(p)}
+                  onNavigateToMaterials={() => setOwnerTab('Materials')}
+                  onNavigateToProjects={() => setOwnerTab('Projects')}
+                  onNavigateToIssues={(issueId?: string) => {
+                    setSelectedIssueIdForNav(issueId || null);
+                    setOwnerTab('Issues');
+                  }}
+                  onQuickApproveMaterial={handleApproveMaterial}
+                />
+              )}
+              {ownerTab === 'Projects' && (
+                <ProjectsView
+                  projects={projects}
+                  onSelectProject={(p) => setSelectedProjectForModal(p)}
+                  onOpenAddProjectModal={() => setActionModalType('project')}
+                />
+              )}
+              {ownerTab === 'Issues' && (
+                <OwnerIssuesScreen
+                  issues={issues}
+                  projects={projects}
+                  tasks={tasks}
+                  onAssignIssue={handleAssignIssue}
+                  onAddComment={handleAddIssueComment}
+                  onChangePriority={handleChangeIssuePriority}
+                  onCreateTaskFromIssue={handleCreateTaskFromIssue}
+                  onToggleResolveIssue={handleToggleResolveIssue}
+                  onOpenReportIssueModal={() => setActionModalType('issue')}
+                  initialSelectedIssueId={selectedIssueIdForNav}
+                />
+              )}
+              {ownerTab === 'Materials' && (
+                <MaterialsView
+                  requests={materialRequests}
+                  onApprove={handleApproveMaterial}
+                  onReject={handleRejectMaterial}
+                  onOpenNewRequestModal={() => setActionModalType('material')}
+                  isOwnerRole={true}
+                />
+              )}
+              {ownerTab === 'More' && (
+                <MoreView
+                  issues={issues}
+                  projects={projects}
+                  currentUser={user}
+                  onResolveIssue={handleResolveIssue}
+                  onSelectProject={(p) => setSelectedProjectForModal(p)}
+                  onOpenReportIssueModal={() => setActionModalType('issue')}
+                />
+              )}
+            </>
+          ) : (
+            <>
+              {workerTab === 'Home' && (
+                <WorkerHome
+                  currentProject={currentWorkerProject}
+                  allProjects={projects}
+                  onSelectCurrentProject={(id) => setWorkerSiteId(id)}
+                  tasks={tasks}
+                  onToggleTaskCompletion={handleToggleTaskCompletion}
+                  onOpenTaskDetail={(task) => setWorkerSelectedTask(task)}
+                  onOpenUpdateProgress={(task) => {
+                    setWorkerProgressUpdateTask(task || null);
+                    setIsWorkerProgressUpdateOpen(true);
+                  }}
+                  onOpenPhotoUpload={() => setIsWorkerPhotoOpen(true)}
+                  onOpenMaterialRequest={() => setIsWorkerMaterialOpen(true)}
+                  onOpenReportProblem={() => setIsWorkerProblemOpen(true)}
+                  onViewAllTasks={() => setWorkerTab('Tasks')}
+                />
+              )}
+              {workerTab === 'Tasks' && (
+                <TasksView
+                  tasks={tasks}
+                  projects={projects}
+                  onToggleTask={handleToggleTaskCompletion}
+                  onOpenAddTaskModal={() => setActionModalType('task')}
+                  onOpenTaskDetail={(task) => setWorkerSelectedTask(task)}
+                  currentProjectId={workerSiteId}
+                />
+              )}
+              {workerTab === 'Updates' && (
+                <UpdatesFeedView
+                  updates={updates}
+                  projects={projects}
+                  onOpenAddUpdate={() => setActionModalType('progress')}
+                  currentProjectId={workerSiteId}
+                />
+              )}
+              {workerTab === 'Profile' && (
+                <ProfileView
+                  assignedProjects={projects.filter((p) => p.siteManager.includes(user.name) || p.id === workerSiteId)}
+                  onSelectProject={(p) => setSelectedProjectForModal(p)}
+                  supervisorName={currentWorkerProject?.siteManager || 'Supervisor'}
+                />
+              )}
+            </>
+          )}
+        </main>
+
+        <div className="sticky bottom-0 z-40">
+          <BottomNav
+            currentRole={role}
+            ownerTab={ownerTab}
+            onSelectOwnerTab={handleSelectOwnerTab}
+            workerTab={workerTab}
+            onSelectWorkerTab={handleSelectWorkerTab}
+            pendingMaterialsCount={pendingMaterialsCount}
+            pendingTasksCount={pendingTasksCount}
+            openIssuesCount={issues.filter((i) => i.status === 'Open').length}
+          />
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-sm text-right">
-            <p className="font-medium text-slate-900">{user.email}</p>
-            <p className="text-slate-500 capitalize">{userData?.role || 'No Role'}</p>
-          </div>
-          <button
-            onClick={() => signOut(auth)}
-            className="p-2 text-slate-500 hover:bg-gray-100 rounded-full transition-colors"
-            title="Sign out"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
-        </div>
-      </header>
+      </div>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {!userData ? (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 flex flex-col items-start gap-4">
-            <div className="flex items-start gap-4">
-              <ShieldAlert className="w-6 h-6 text-amber-600 mt-1" />
-              <div>
-                <h2 className="text-lg font-semibold text-amber-900">Account Not Configured</h2>
-                <p className="text-amber-800 mt-1">Your account does not have an assigned role or organization. Please contact your administrator.</p>
-              </div>
-            </div>
-            <button
-              onClick={async () => {
-                const orgRef = await addDoc(collection(db, 'organizations'), {
-                  name: 'Demo Interior Design Co.',
-                  financials: {}
-                });
-                await setDoc(doc(db, 'users', user.uid), {
-                  uid: user.uid,
-                  orgId: orgRef.id,
-                  email: user.email,
-                  role: 'owner'
-                });
-                alert("Setup complete! Please refresh the page.");
-              }}
-              className="mt-4 bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors"
-            >
-              Initialize Demo Organization (Test Only)
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-8">
-            {isManager && (
-              <div className="flex justify-end">
-                <button
-                  onClick={seedData}
-                  className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors"
-                >
-                  Seed Test Data
-                </button>
-              </div>
-            )}
+      <ProjectDetailModal
+        project={selectedProjectForModal}
+        onClose={() => setSelectedProjectForModal(null)}
+        tasks={tasks}
+        materialRequests={materialRequests}
+        issues={issues}
+        updates={updates}
+        files={files}
+        onToggleTask={handleToggleTaskCompletion}
+        onUpdateTaskStatus={handleUpdateTaskStatus}
+        onUpdateTaskProgress={handleUpdateTaskProgress}
+        onApproveMaterial={handleApproveMaterial}
+        onResolveIssue={handleResolveIssue}
+        onOpenActionModal={(t) => {
+          setSelectedProjectForModal(null);
+          setActionModalType(t);
+        }}
+      />
 
-            <section>
-              <h2 className="text-xl font-semibold text-slate-900 flex items-center gap-2 mb-4">
-                <Briefcase className="w-5 h-5" />
-                {isManager ? "Organization Projects" : "Assigned Projects"}
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {projects.length === 0 ? (
-                  <p className="text-slate-500 col-span-full">No projects found.</p>
-                ) : (
-                  projects.map(project => (
-                    <div key={project.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                      <h3 className="font-semibold text-lg text-slate-900">{project.name}</h3>
-                      <p className="text-sm text-slate-500 mt-1">Status: {project.status}</p>
-                      {isManager && (
-                        <div className="mt-4 text-xs font-medium bg-slate-100 text-slate-700 px-2 py-1 rounded inline-block">
-                          Financials hidden from workers
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
+      <ActionModal
+        isOpen={actionModalType !== null}
+        type={actionModalType}
+        onClose={() => setActionModalType(null)}
+        projects={projects}
+        activeProjectId={role === 'WORKER' ? workerSiteId : undefined}
+        onAddUpdate={handleAddUpdate}
+        onAddMaterialRequest={handleAddMaterialRequest}
+        onAddIssue={handleAddIssue}
+        onAddProject={handleAddProject}
+        onAddTask={handleAddTask}
+        onUpdateProjectProgress={handleUpdateProjectProgress}
+        currentRole={role}
+      />
 
-            <section>
-              <h2 className="text-xl font-semibold text-slate-900 flex items-center gap-2 mb-4">
-                <CheckSquare className="w-5 h-5" />
-                {isManager ? "All Tasks" : "My Assigned Tasks"}
-              </h2>
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 divide-y divide-gray-100">
-                {tasks.length === 0 ? (
-                  <div className="p-6 text-slate-500 text-center">No tasks found.</div>
-                ) : (
-                  tasks.map(task => (
-                    <div key={task.id} className="p-4 flex items-center justify-between">
-                      <div>
-                        <h4 className="font-medium text-slate-900">{task.title}</h4>
-                        <p className="text-sm text-slate-500">Project: {projects.find(p => p.id === task.projectId)?.name || task.projectId}</p>
-                      </div>
-                      <input type="checkbox" className="w-5 h-5 rounded border-gray-300 text-slate-900 focus:ring-slate-900" />
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-          </div>
-        )}
-      </main>
+      <AddMenuModal
+        isOpen={isAddMenuOpen}
+        onClose={() => setIsAddMenuOpen(false)}
+        currentRole={role}
+        onSelectAction={(t) => {
+          setIsAddMenuOpen(false);
+          setActionModalType(t);
+        }}
+      />
+
+      <NotificationsModal
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
+        onNavigateToMaterials={() => {
+          setRole('OWNER');
+          setOwnerTab('Materials');
+        }}
+        onNavigateToIssues={() => {
+          setRole('OWNER');
+          setOwnerTab('Issues');
+        }}
+      />
+
+      <WorkerTaskDetailModal
+        task={workerSelectedTask}
+        isOpen={workerSelectedTask !== null}
+        onClose={() => setWorkerSelectedTask(null)}
+        onOpenUpdateProgress={(task) => {
+          setWorkerSelectedTask(null);
+          setWorkerProgressUpdateTask(task);
+          setIsWorkerProgressUpdateOpen(true);
+        }}
+        onToggleTaskCompletion={handleToggleTaskCompletion}
+      />
+
+      <WorkerProgressUpdateModal
+        isOpen={isWorkerProgressUpdateOpen}
+        onClose={() => {
+          setIsWorkerProgressUpdateOpen(false);
+          setWorkerProgressUpdateTask(null);
+        }}
+        project={currentWorkerProject}
+        projects={projects}
+        currentProjectId={currentWorkerProject?.id || workerSiteId}
+        tasks={tasks.filter((t) => t.projectId === currentWorkerProject?.id)}
+        initialTask={workerProgressUpdateTask}
+        initialTaskId={workerProgressUpdateTask?.id}
+        onSaveProgress={handleSaveWorkerProgressUpdate}
+        onSaveUpdate={handleSaveWorkerProgressUpdate}
+      />
+
+      <WorkerPhotoUploadModal
+        isOpen={isWorkerPhotoOpen}
+        onClose={() => setIsWorkerPhotoOpen(false)}
+        project={currentWorkerProject}
+        onAddUpdate={handleAddUpdate}
+      />
+
+      <WorkerMaterialRequestModal
+        isOpen={isWorkerMaterialOpen}
+        onClose={() => setIsWorkerMaterialOpen(false)}
+        project={currentWorkerProject}
+        onAddMaterialRequest={handleAddMaterialRequest}
+      />
+
+      <WorkerReportProblemModal
+        isOpen={isWorkerProblemOpen}
+        onClose={() => setIsWorkerProblemOpen(false)}
+        project={currentWorkerProject}
+        tasks={tasks.filter((t) => t.projectId === currentWorkerProject?.id)}
+        onAddIssue={handleAddIssue}
+      />
     </div>
   );
 }

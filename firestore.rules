@@ -1,8 +1,6 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-    
     // Helper functions
     function isAuthenticated() {
       return request.auth != null;
@@ -12,61 +10,63 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
     
-    function hasRole(allowedRoles) {
-      return isAuthenticated() && getUserData().role in allowedRoles;
+    function isOwner() {
+      return isAuthenticated() && getUserData().role == 'owner';
     }
     
-    function isSameOrg(orgId) {
-      return isAuthenticated() && getUserData().orgId == orgId;
+    function isWorker() {
+      return isAuthenticated() && getUserData().role == 'worker';
     }
-    
-    function isOwnerOrManager() {
-      return hasRole(['owner', 'admin', 'project_manager', 'supervisor']);
+
+    function canAccessData(resourceData) {
+      return (isOwner() && resourceData.ownerId == request.auth.uid) || 
+             (isWorker() && resourceData.ownerId == getUserData().employerId);
+    }
+
+    function canCreateData(requestData) {
+      return (isOwner() && requestData.ownerId == request.auth.uid) || 
+             (isWorker() && requestData.ownerId == getUserData().employerId);
+    }
+
+    match /invites/{phoneNumber} {
+      allow read: if true; // Allows the login screen to read invites
+      allow create: if isOwner() && request.resource.data.employerId == request.auth.uid;
+      allow update, delete: if isOwner() && resource.data.employerId == request.auth.uid;
     }
 
     match /users/{userId} {
-      // Users can read their own data, or anyone in the same org
-      allow read: if isAuthenticated() && (request.auth.uid == userId || (getUserData() != null && getUserData().orgId == resource.data.orgId));
-      // Only owners/admins can modify roles, but allow initial setup for demo
-      allow write: if isAuthenticated() && (request.auth.uid == userId);
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && request.auth.uid == userId;
     }
 
-    match /organizations/{orgId} {
-      allow read, write: if isAuthenticated(); // Allowed for demo initialization
+    match /projects/{document} {
+      allow read, update, delete: if canAccessData(resource.data);
+      allow create: if canCreateData(request.resource.data);
     }
 
-    match /projects/{projectId} {
-      // Managers can read all projects in their org
-      // Workers can only read projects they are assigned to
-      allow read: if isAuthenticated() && isSameOrg(resource.data.orgId) && (
-        isOwnerOrManager() ||
-        (hasRole(['worker']) && request.auth.uid in resource.data.assignedWorkers)
-      );
-      
-      allow write: if isAuthenticated() && isSameOrg(request.resource.data.orgId) && isOwnerOrManager();
-    }
-    
-    match /project_financials/{financeId} {
-      // Workers cannot access this
-      allow read, write: if isAuthenticated() && isSameOrg(resource.data.orgId) && hasRole(['owner', 'admin', 'project_manager']);
+    match /tasks/{document} {
+      allow read, update, delete: if canAccessData(resource.data);
+      allow create: if canCreateData(request.resource.data);
     }
 
-    match /tasks/{taskId} {
-      allow read, write: if isAuthenticated() && isSameOrg(resource.data.orgId) && (
-        isOwnerOrManager() ||
-        (hasRole(['worker']) && resource.data.assignedTo == request.auth.uid)
-      );
+    match /projectFiles/{document} {
+      allow read, update, delete: if canAccessData(resource.data);
+      allow create: if canCreateData(request.resource.data);
     }
-    
-    match /updates/{updateId} {
-      allow read: if isAuthenticated() && isSameOrg(resource.data.orgId) && (
-        isOwnerOrManager() ||
-        (hasRole(['worker']) && resource.data.workerId == request.auth.uid)
-      );
-      allow write: if isAuthenticated() && isSameOrg(request.resource.data.orgId) && (
-        isOwnerOrManager() ||
-        (hasRole(['worker']) && request.resource.data.workerId == request.auth.uid)
-      );
+
+    match /materialRequests/{document} {
+      allow read, update, delete: if canAccessData(resource.data);
+      allow create: if canCreateData(request.resource.data);
+    }
+
+    match /issueReports/{document} {
+      allow read, update, delete: if canAccessData(resource.data);
+      allow create: if canCreateData(request.resource.data);
+    }
+
+    match /siteUpdates/{document} {
+      allow read, update, delete: if canAccessData(resource.data);
+      allow create: if canCreateData(request.resource.data);
     }
   }
 }
