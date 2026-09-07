@@ -1,0 +1,72 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function hasRole(allowedRoles) {
+      return isAuthenticated() && getUserData().role in allowedRoles;
+    }
+    
+    function isSameOrg(orgId) {
+      return isAuthenticated() && getUserData().orgId == orgId;
+    }
+    
+    function isOwnerOrManager() {
+      return hasRole(['owner', 'admin', 'project_manager', 'supervisor']);
+    }
+
+    match /users/{userId} {
+      // Users can read their own data, or anyone in the same org
+      allow read: if isAuthenticated() && (request.auth.uid == userId || (getUserData() != null && getUserData().orgId == resource.data.orgId));
+      // Only owners/admins can modify roles, but allow initial setup for demo
+      allow write: if isAuthenticated() && (request.auth.uid == userId);
+    }
+
+    match /organizations/{orgId} {
+      allow read, write: if isAuthenticated(); // Allowed for demo initialization
+    }
+
+    match /projects/{projectId} {
+      // Managers can read all projects in their org
+      // Workers can only read projects they are assigned to
+      allow read: if isAuthenticated() && isSameOrg(resource.data.orgId) && (
+        isOwnerOrManager() ||
+        (hasRole(['worker']) && request.auth.uid in resource.data.assignedWorkers)
+      );
+      
+      allow write: if isAuthenticated() && isSameOrg(request.resource.data.orgId) && isOwnerOrManager();
+    }
+    
+    match /project_financials/{financeId} {
+      // Workers cannot access this
+      allow read, write: if isAuthenticated() && isSameOrg(resource.data.orgId) && hasRole(['owner', 'admin', 'project_manager']);
+    }
+
+    match /tasks/{taskId} {
+      allow read, write: if isAuthenticated() && isSameOrg(resource.data.orgId) && (
+        isOwnerOrManager() ||
+        (hasRole(['worker']) && resource.data.assignedTo == request.auth.uid)
+      );
+    }
+    
+    match /updates/{updateId} {
+      allow read: if isAuthenticated() && isSameOrg(resource.data.orgId) && (
+        isOwnerOrManager() ||
+        (hasRole(['worker']) && resource.data.workerId == request.auth.uid)
+      );
+      allow write: if isAuthenticated() && isSameOrg(request.resource.data.orgId) && (
+        isOwnerOrManager() ||
+        (hasRole(['worker']) && request.resource.data.workerId == request.auth.uid)
+      );
+    }
+  }
+}
