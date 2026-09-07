@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { auth, db } from './lib/firebase';
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, User } from 'firebase/auth';
-import { doc, getDoc, collection, query, where, getDocs, addDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, addDoc, setDoc } from 'firebase/firestore';
 import { LogOut, LayoutDashboard, Briefcase, CheckSquare, ShieldAlert } from 'lucide-react';
 
 export default function App() {
@@ -192,7 +192,6 @@ export default function App() {
             </div>
             <button
               onClick={async () => {
-                const { setDoc } = await import('firebase/firestore');
                 const orgRef = await addDoc(collection(db, 'organizations'), {
                   name: 'Demo Interior Design Co.',
                   financials: {}
