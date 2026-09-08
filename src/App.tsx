@@ -33,29 +33,30 @@ import { WorkerProgressUpdateModal, ProgressChoice } from './components/worker/W
 import { WorkerPhotoUploadModal } from './components/worker/WorkerPhotoUploadModal';
 import { WorkerMaterialRequestModal } from './components/worker/WorkerMaterialRequestModal';
 import { WorkerReportProblemModal } from './components/worker/WorkerReportProblemModal';
-import { Login } from './components/Login';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth, db } from './lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
 import { subscribeToCollection, updateDocument, addDocument, seedInitialData } from './lib/dataService';
+import {
+  INITIAL_PROJECTS,
+  INITIAL_TASKS,
+  INITIAL_MATERIAL_REQUESTS,
+  INITIAL_ISSUES,
+  INITIAL_UPDATES,
+  INITIAL_FILES,
+} from './mockData';
 
 export default function App() {
-  const [user, setUser] = useState<any>(null);
-  const [loadingAuth, setLoadingAuth] = useState(true);
-
   const [role, setRole] = useState<UserRole>('OWNER');
 
   const [ownerTab, setOwnerTab] = useState<OwnerTab>('Home');
   const [workerTab, setWorkerTab] = useState<WorkerTab>('Home');
   const [workerSiteId, setWorkerSiteId] = useState<string>('proj-1');
 
-  // Core Data State
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [materialRequests, setMaterialRequests] = useState<MaterialRequest[]>([]);
-  const [issues, setIssues] = useState<IssueReport[]>([]);
-  const [updates, setUpdates] = useState<SiteUpdate[]>([]);
-  const [files, setFiles] = useState<ProjectFile[]>([]);
+  // Core Data State - preloaded with rich realistic data for testing
+  const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
+  const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
+  const [materialRequests, setMaterialRequests] = useState<MaterialRequest[]>(INITIAL_MATERIAL_REQUESTS);
+  const [issues, setIssues] = useState<IssueReport[]>(INITIAL_ISSUES);
+  const [updates, setUpdates] = useState<SiteUpdate[]>(INITIAL_UPDATES);
+  const [files, setFiles] = useState<ProjectFile[]>(INITIAL_FILES);
 
   // Modal States
   const [selectedProjectForModal, setSelectedProjectForModal] = useState<Project | null>(null);
@@ -71,100 +72,101 @@ export default function App() {
   const [isWorkerMaterialOpen, setIsWorkerMaterialOpen] = useState<boolean>(false);
   const [isWorkerProblemOpen, setIsWorkerProblemOpen] = useState<boolean>(false);
   const [selectedIssueIdForNav, setSelectedIssueIdForNav] = useState<string | null>(null);
-  const [isMobileFrame, setIsMobileFrame] = useState<boolean>(true);
+  const [isMobileFrame, setIsMobileFrame] = useState<boolean>(false);
 
-  
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
-      if (authUser) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', authUser.uid));
-          if (userDoc.exists()) {
-            const userData = userDoc.data();
-            setUser(userData);
-            setRole(userData.role);
-          } else {
-            setUser(null); // Or trigger a login refresh
-          }
-        } catch (e) {
-          console.error("Error fetching user profile", e);
-        }
-      } else {
-        setUser(null);
-      }
-      setLoadingAuth(false);
-    });
-    return () => unsubscribe();
-  }, []);
+  const targetOwnerId = 'demo-owner-ready-to-use';
 
   useEffect(() => {
-    if (!user) return;
-    const orgId = user.organizationId;
-    
-    const unsubProjects = subscribeToCollection('projects', orgId, setProjects);
-    const unsubTasks = subscribeToCollection('tasks', orgId, setTasks);
-    const unsubMaterials = subscribeToCollection('material_requests', orgId, setMaterialRequests);
-    const unsubIssues = subscribeToCollection('issues', orgId, setIssues);
-    const unsubUpdates = subscribeToCollection('progress_updates', orgId, setUpdates);
-    
+    // Background seed to ensure documents exist in Firestore
+    seedInitialData(targetOwnerId);
+
+    // Live subscriptions with instant fallback so user never sees a blank screen
+    const unsubProjects = subscribeToCollection<Project>('projects', targetOwnerId, setProjects, INITIAL_PROJECTS);
+    const unsubTasks = subscribeToCollection<Task>('tasks', targetOwnerId, setTasks, INITIAL_TASKS);
+    const unsubMaterials = subscribeToCollection<MaterialRequest>('materialRequests', targetOwnerId, setMaterialRequests, INITIAL_MATERIAL_REQUESTS);
+    const unsubIssues = subscribeToCollection<IssueReport>('issueReports', targetOwnerId, setIssues, INITIAL_ISSUES);
+    const unsubUpdates = subscribeToCollection<SiteUpdate>('siteUpdates', targetOwnerId, setUpdates, INITIAL_UPDATES);
+    const unsubFiles = subscribeToCollection<ProjectFile>('projectFiles', targetOwnerId, setFiles, INITIAL_FILES);
+
     return () => {
       unsubProjects();
       unsubTasks();
       unsubMaterials();
       unsubIssues();
       unsubUpdates();
+      unsubFiles();
     };
-  }, [user]);
-  
+  }, []);
 
   const currentWorkerProject = projects.find((p) => p.id === workerSiteId) || projects[0];
 
-  if (loadingAuth) {
-    return <div className="min-h-screen bg-[#F5F4F0] flex items-center justify-center">Loading...</div>;
-  }
-
-  if (!user) {
-    return <Login onLoginSuccess={(u) => {
-      setUser(u);
-      setRole(u.role);
-    }} />;
-  }
-
-  // Actions
+  // Actions with immediate local state responsiveness + background Firestore persistence
   const handleToggleTaskCompletion = async (taskId: string) => {
     const t = tasks.find(x => x.id === taskId);
-    if(!t) return;
+    if (!t) return;
     const nextCompleted = !t.isCompleted;
+    const nextProgress = nextCompleted ? 100 : (t.progress ?? 50);
+    const nextStatus: TaskStatus = nextCompleted ? 'Completed' : 'In Progress';
+
+    setTasks(prev => prev.map(item => item.id === taskId ? {
+      ...item,
+      isCompleted: nextCompleted,
+      status: nextStatus,
+      progress: nextProgress,
+    } : item));
+
     await updateDocument('tasks', taskId, {
       isCompleted: nextCompleted,
-      status: nextCompleted ? 'Completed' : 'In Progress',
-      progress: nextCompleted ? 100 : (t.progress ?? 50),
+      status: nextStatus,
+      progress: nextProgress,
     });
   };
 
   const handleUpdateTaskStatus = async (taskId: string, newStatus: TaskStatus) => {
     const t = tasks.find(x => x.id === taskId);
-    if(!t) return;
+    if (!t) return;
+    const isCompleted = newStatus === 'Completed';
+    const progress = isCompleted ? 100 : (newStatus === 'Not Started' ? 0 : (t.progress || 50));
+
+    setTasks(prev => prev.map(item => item.id === taskId ? {
+      ...item,
+      status: newStatus,
+      isCompleted,
+      progress,
+    } : item));
+
     await updateDocument('tasks', taskId, {
       status: newStatus,
-      isCompleted: newStatus === 'Completed',
-      progress: newStatus === 'Completed' ? 100 : (newStatus === 'Not Started' ? 0 : (t.progress || 50)),
+      isCompleted,
+      progress,
     });
   };
 
   const handleUpdateTaskProgress = async (taskId: string, newProgress: number) => {
+    const isCompleted = newProgress >= 100;
+    const status: TaskStatus = isCompleted ? 'Completed' : (newProgress === 0 ? 'Not Started' : 'In Progress');
+
+    setTasks(prev => prev.map(item => item.id === taskId ? {
+      ...item,
+      progress: newProgress,
+      isCompleted,
+      status,
+    } : item));
+
     await updateDocument('tasks', taskId, {
       progress: newProgress,
-      isCompleted: newProgress >= 100,
-      status: newProgress >= 100 ? 'Completed' : (newProgress === 0 ? 'Not Started' : 'In Progress'),
+      isCompleted,
+      status,
     });
   };
 
   const handleApproveMaterial = async (id: string) => {
+    setMaterialRequests(prev => prev.map(m => m.id === id ? { ...m, status: 'Approved' } : m));
     await updateDocument('materialRequests', id, { status: 'Approved' });
   };
 
   const handleRejectMaterial = async (id: string) => {
+    setMaterialRequests(prev => prev.map(m => m.id === id ? { ...m, status: 'Rejected' } : m));
     await updateDocument('materialRequests', id, { status: 'Rejected' });
   };
 
@@ -174,70 +176,106 @@ export default function App() {
 
   const handleToggleResolveIssue = async (issueId: string) => {
     const i = issues.find(x => x.id === issueId);
-    if(!i) return;
+    if (!i) return;
     const willResolve = i.status !== 'Resolved';
     const newStatus: IssueStatus = willResolve ? 'Resolved' : 'Open';
     const newComment: IssueComment = {
       id: `comm-${Date.now()}`,
-      author: 'Demo User',
+      author: 'Om Patel',
       authorRole: role,
       text: willResolve ? 'Marked snag as Resolved.' : 'Reopened snag.',
       createdAt: 'Just now',
     };
+    const updatedComments = [...(i.comments || []), newComment];
+    const updatedAction = willResolve ? 'Resolved by verification.' : i.actionTaken;
+
+    setIssues(prev => prev.map(item => item.id === issueId ? {
+      ...item,
+      status: newStatus,
+      actionTaken: updatedAction,
+      comments: updatedComments,
+    } : item));
+
     await updateDocument('issueReports', issueId, {
       status: newStatus,
-      actionTaken: willResolve ? 'Resolved by verification.' : i.actionTaken,
-      comments: [...(i.comments || []), newComment],
+      actionTaken: updatedAction,
+      comments: updatedComments,
     });
   };
 
   const handleAssignIssue = async (issueId: string, assignedTo: string) => {
     const i = issues.find(x => x.id === issueId);
-    if(!i) return;
+    if (!i) return;
     const newStatus: IssueStatus = i.status === 'Open' ? 'In Progress' : i.status;
     const newComment: IssueComment = {
       id: `comm-${Date.now()}`,
-      author: 'Demo User',
+      author: 'Om Patel',
       authorRole: role,
       text: `Assigned snag to ${assignedTo}.`,
       createdAt: 'Just now',
     };
+    const updatedComments = [...(i.comments || []), newComment];
+
+    setIssues(prev => prev.map(item => item.id === issueId ? {
+      ...item,
+      assignedTo,
+      status: newStatus,
+      comments: updatedComments,
+    } : item));
+
     await updateDocument('issueReports', issueId, {
       assignedTo,
       status: newStatus,
-      comments: [...(i.comments || []), newComment],
+      comments: updatedComments,
     });
   };
 
   const handleAddIssueComment = async (issueId: string, text: string) => {
     const i = issues.find(x => x.id === issueId);
-    if(!i) return;
+    if (!i) return;
     const newComment: IssueComment = {
       id: `comm-${Date.now()}`,
-      author: 'Demo User',
+      author: 'Om Patel',
       authorRole: role,
       text,
       createdAt: 'Just now',
     };
+    const updatedComments = [...(i.comments || []), newComment];
+
+    setIssues(prev => prev.map(item => item.id === issueId ? {
+      ...item,
+      comments: updatedComments,
+    } : item));
+
     await updateDocument('issueReports', issueId, {
-      comments: [...(i.comments || []), newComment],
+      comments: updatedComments,
     });
   };
 
   const handleChangeIssuePriority = async (issueId: string, priority: IssuePriority) => {
     const i = issues.find(x => x.id === issueId);
-    if(!i) return;
+    if (!i) return;
     const newComment: IssueComment = {
       id: `comm-${Date.now()}`,
-      author: 'Demo User',
+      author: 'Om Patel',
       authorRole: role,
       text: `Changed priority from ${i.priority} to ${priority}.`,
       createdAt: 'Just now',
     };
+    const updatedComments = [...(i.comments || []), newComment];
+    const severity = priority === 'Urgent' ? 'Critical' : priority === 'High' ? 'Medium' : 'Low';
+
+    setIssues(prev => prev.map(item => item.id === issueId ? {
+      ...item,
+      priority,
+      severity,
+      comments: updatedComments,
+    } : item));
+
     await updateDocument('issueReports', issueId, {
       priority,
-      severity: priority === 'Urgent' ? 'Critical' : priority === 'High' ? 'Medium' : 'Low',
-      comments: [...(i.comments || []), newComment],
+      severity,
+      comments: updatedComments,
     });
   };
 
@@ -248,7 +286,7 @@ export default function App() {
     const newTaskId = `task-${Date.now()}`;
     const newTask: Task = {
       id: newTaskId,
-      ownerId: user?.organizationId || '',
+      ownerId: targetOwnerId,
       projectId: targetIssue.projectId,
       projectName: targetIssue.projectName,
       title: taskData.title || `Fix: ${targetIssue.title}`,
@@ -262,14 +300,15 @@ export default function App() {
       category: 'Other',
       notes: taskData.notes || '',
     };
+    setTasks(prev => [newTask, ...prev]);
     await addDocument('tasks', newTaskId, newTask);
 
     const newUpdate: SiteUpdate = {
       id: `up-${Date.now()}`,
-      ownerId: user?.organizationId || '',
+      ownerId: targetOwnerId,
       projectId: newTask.projectId,
       projectName: newTask.projectName,
-      author: 'Demo User',
+      author: 'Om Patel',
       authorRole: role,
       timestamp: 'Just now',
       room: newTask.room,
@@ -277,29 +316,38 @@ export default function App() {
       type: 'Snag',
       tags: [newTask.category, 'Task Escalation'],
     };
+    setUpdates(prev => [newUpdate, ...prev]);
     await addDocument('siteUpdates', newUpdate.id, newUpdate);
   };
 
   const handleUpdateProjectProgress = async (projectId: string, newProgress: number) => {
     const p = projects.find(x => x.id === projectId);
-    if(!p) return;
+    if (!p) return;
     const status = newProgress >= 100 ? 'Completed' : p.status;
+    setProjects(prev => prev.map(item => item.id === projectId ? { ...item, progress: newProgress, status } : item));
     await updateDocument('projects', projectId, { progress: newProgress, status });
   };
 
   const handleAddUpdate = async (newUpdate: SiteUpdate) => {
-    await addDocument('siteUpdates', newUpdate.id, { ...newUpdate, ownerId: user?.organizationId || '' });
+    const full = { ...newUpdate, ownerId: targetOwnerId };
+    setUpdates(prev => [full, ...prev]);
+    await addDocument('siteUpdates', full.id, full);
   };
 
   const handleAddMaterialRequest = async (newRequest: MaterialRequest) => {
-    await addDocument('materialRequests', newRequest.id, { ...newRequest, ownerId: user?.organizationId || '' });
+    const full = { ...newRequest, ownerId: targetOwnerId };
+    setMaterialRequests(prev => [full, ...prev]);
+    await addDocument('materialRequests', full.id, full);
   };
 
   const handleAddIssue = async (newIssue: IssueReport) => {
-    await addDocument('issueReports', newIssue.id, { ...newIssue, ownerId: user?.organizationId || '' });
+    const full = { ...newIssue, ownerId: targetOwnerId };
+    setIssues(prev => [full, ...prev]);
+    await addDocument('issueReports', full.id, full);
+
     const newUpdate: SiteUpdate = {
       id: `up-${Date.now()}`,
-      ownerId: user?.organizationId || '',
+      ownerId: targetOwnerId,
       projectId: newIssue.projectId,
       projectName: newIssue.projectName,
       author: newIssue.reportedBy,
@@ -311,15 +359,20 @@ export default function App() {
       imageUrl: newIssue.imageUrl,
       tags: [newIssue.category, newIssue.priority, 'Snag'],
     };
+    setUpdates(prev => [newUpdate, ...prev]);
     await addDocument('siteUpdates', newUpdate.id, newUpdate);
   };
 
   const handleAddProject = async (newProject: Project) => {
-    await addDocument('projects', newProject.id, { ...newProject, ownerId: user?.organizationId || '' });
+    const full = { ...newProject, ownerId: targetOwnerId };
+    setProjects(prev => [full, ...prev]);
+    await addDocument('projects', full.id, full);
   };
 
   const handleAddTask = async (newTask: Task) => {
-    await addDocument('tasks', newTask.id, { ...newTask, ownerId: user?.organizationId || '' });
+    const full = { ...newTask, ownerId: targetOwnerId };
+    setTasks(prev => [full, ...prev]);
+    await addDocument('tasks', full.id, full);
   };
 
   const handleSaveWorkerProgressUpdate = async (
@@ -340,6 +393,15 @@ export default function App() {
         : 'In Progress';
     const isCompleted = newStatus === 'Completed';
 
+    setTasks(prev => prev.map(t => t.id === taskId ? {
+      ...t,
+      progress: exactPercentage,
+      status: newStatus,
+      isCompleted,
+      photos: photos.length > 0 ? [...(t.photos || []), ...photos] : t.photos,
+      notes: note ? (t.notes ? `${t.notes} • ${note}` : note) : t.notes,
+    } : t));
+
     await updateDocument('tasks', taskId, {
       progress: exactPercentage,
       status: newStatus,
@@ -350,10 +412,10 @@ export default function App() {
 
     const newUpdate: SiteUpdate = {
       id: `up-${Date.now()}`,
-      ownerId: user?.organizationId || '',
+      ownerId: targetOwnerId,
       projectId: targetTask.projectId,
       projectName: targetTask.projectName,
-      author: 'Demo Worker',
+      author: 'Site Team',
       authorRole: 'Site Worker',
       timestamp: 'Just now',
       room: targetTask.room,
@@ -363,9 +425,9 @@ export default function App() {
       progressPercentage: exactPercentage,
       tags: [targetTask.category, targetTask.room, progressChoice],
     };
+    setUpdates(prev => [newUpdate, ...prev]);
     await addDocument('siteUpdates', newUpdate.id, newUpdate);
 
-    // Simple avg project progress (Note: fetching all tasks fresh from local state is fine)
     const projectTasks = tasks
       .map((t) => (t.id === taskId ? { ...t, progress: exactPercentage } : t))
       .filter((t) => t.projectId === targetTask.projectId);
@@ -374,6 +436,7 @@ export default function App() {
     );
     const p = projects.find(x => x.id === targetTask.projectId);
     if (p && avgProgress > p.progress) {
+      setProjects(prev => prev.map(item => item.id === p.id ? { ...item, progress: avgProgress } : item));
       await updateDocument('projects', p.id, { progress: avgProgress });
     }
   };
@@ -396,16 +459,25 @@ export default function App() {
   const pendingTasksCount = tasks.filter((t) => t.projectId === workerSiteId && !t.isCompleted).length;
 
   return (
-    <div className={`min-h-screen ${isMobileFrame ? 'bg-stone-900 flex items-center justify-center p-4' : 'bg-[#F5F4F0]'} antialiased transition-all selection:bg-amber-200 selection:text-zinc-900`}>
-      <div className={isMobileFrame ? 'w-[400px] h-[800px] bg-[#F5F4F0] rounded-[3rem] shadow-2xl overflow-hidden border-[8px] border-zinc-800 relative flex flex-col' : 'w-full h-screen flex flex-col bg-[#F5F4F0] relative'}>
-        {isMobileFrame && <div className="absolute top-0 inset-x-0 h-6 bg-zinc-800 rounded-b-3xl w-40 mx-auto z-50 pointer-events-none"></div>}
-        
-        
-      <Header
+    <div className={`min-h-screen ${isMobileFrame ? 'bg-[#1A1A1A]' : 'bg-[#F5F4F0]'} flex flex-col antialiased transition-all selection:bg-amber-200 selection:text-zinc-900`}>
+      <DevRoleSwitcher
         currentRole={role}
-        workerProjectName={currentWorkerProject?.name}
-        onOpenNotifications={() => setIsNotificationsOpen(true)}
+        onRoleChange={setRole}
+        workerSiteId={workerSiteId}
+        onWorkerSiteChange={setWorkerSiteId}
+        isMobileFrame={isMobileFrame}
+        onToggleMobileFrame={() => setIsMobileFrame(!isMobileFrame)}
       />
+
+      <div className={isMobileFrame ? 'flex-1 flex items-center justify-center p-3 sm:p-5' : 'flex-1 flex flex-col'}>
+        <div className={isMobileFrame ? 'w-full max-w-[410px] h-[840px] max-h-[92vh] bg-[#F5F4F0] rounded-[2.5rem] shadow-2xl overflow-hidden border-[8px] border-zinc-800 relative flex flex-col' : 'w-full flex-1 flex flex-col bg-[#F5F4F0] relative'}>
+          {isMobileFrame && <div className="absolute top-0 inset-x-0 h-5 bg-zinc-800 rounded-b-2xl w-36 mx-auto z-50 pointer-events-none"></div>}
+
+          <Header
+            currentRole={role}
+            workerProjectName={currentWorkerProject?.name}
+            onOpenNotifications={() => setIsNotificationsOpen(true)}
+          />
 
       <div className="flex-1 overflow-y-auto pb-20 relative">
         <main className="max-w-md mx-auto w-full min-h-full">
@@ -629,13 +701,14 @@ export default function App() {
         onAddMaterialRequest={handleAddMaterialRequest}
       />
 
-      <WorkerReportProblemModal
-        isOpen={isWorkerProblemOpen}
-        onClose={() => setIsWorkerProblemOpen(false)}
-        project={currentWorkerProject}
-        tasks={tasks.filter((t) => t.projectId === currentWorkerProject?.id)}
-        onAddIssue={handleAddIssue}
-      />
+        <WorkerReportProblemModal
+          isOpen={isWorkerProblemOpen}
+          onClose={() => setIsWorkerProblemOpen(false)}
+          project={currentWorkerProject}
+          tasks={tasks.filter((t) => t.projectId === currentWorkerProject?.id)}
+          onAddIssue={handleAddIssue}
+        />
+        </div>
       </div>
     </div>
   );
