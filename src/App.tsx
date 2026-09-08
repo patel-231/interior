@@ -33,12 +33,9 @@ import { WorkerProgressUpdateModal, ProgressChoice } from './components/worker/W
 import { WorkerPhotoUploadModal } from './components/worker/WorkerPhotoUploadModal';
 import { WorkerMaterialRequestModal } from './components/worker/WorkerMaterialRequestModal';
 import { WorkerReportProblemModal } from './components/worker/WorkerReportProblemModal';
-import { Login } from './components/Login';
 import { subscribeToCollection, updateDocument, addDocument, seedInitialData } from './lib/dataService';
-import { logOut } from './lib/firebase';
 
 export default function App() {
-  const [user, setUser] = useState<any>(null);
   const [role, setRole] = useState<UserRole>('OWNER');
 
   const [ownerTab, setOwnerTab] = useState<OwnerTab>('Home');
@@ -67,14 +64,14 @@ export default function App() {
   const [isWorkerMaterialOpen, setIsWorkerMaterialOpen] = useState<boolean>(false);
   const [isWorkerProblemOpen, setIsWorkerProblemOpen] = useState<boolean>(false);
   const [selectedIssueIdForNav, setSelectedIssueIdForNav] = useState<string | null>(null);
+  const [isMobileFrame, setIsMobileFrame] = useState<boolean>(true);
+
+  const targetOwnerId = 'demo-owner-ready-to-use';
 
   // Firebase Subscriptions
   useEffect(() => {
-    if (!user) return;
-    const targetOwnerId = user.role === 'OWNER' ? user.id : user.employerId;
-    
     // Attempt seed
-    if (user.role === 'OWNER') seedInitialData(targetOwnerId);
+    seedInitialData(targetOwnerId);
 
     const unsubProjects = subscribeToCollection<Project>('projects', targetOwnerId, setProjects);
     const unsubTasks = subscribeToCollection<Task>('tasks', targetOwnerId, setTasks);
@@ -91,18 +88,9 @@ export default function App() {
       unsubUpdates();
       unsubFiles();
     };
-  }, [user]);
+  }, []);
 
   const currentWorkerProject = projects.find((p) => p.id === workerSiteId) || projects[0];
-
-  if (!user) {
-    return <Login onLoginSuccess={(u) => {
-      setRole(u.role);
-      setUser(u);
-    }} />;
-  }
-
-  const targetOwnerId = user.role === 'OWNER' ? user.id : user.employerId;
 
   // Actions
   const handleToggleTaskCompletion = async (taskId: string) => {
@@ -153,8 +141,8 @@ export default function App() {
     const newStatus: IssueStatus = willResolve ? 'Resolved' : 'Open';
     const newComment: IssueComment = {
       id: `comm-${Date.now()}`,
-      author: user.name || 'User',
-      authorRole: user.role,
+      author: 'Demo User',
+      authorRole: role,
       text: willResolve ? 'Marked snag as Resolved.' : 'Reopened snag.',
       createdAt: 'Just now',
     };
@@ -171,8 +159,8 @@ export default function App() {
     const newStatus: IssueStatus = i.status === 'Open' ? 'In Progress' : i.status;
     const newComment: IssueComment = {
       id: `comm-${Date.now()}`,
-      author: user.name || 'User',
-      authorRole: user.role,
+      author: 'Demo User',
+      authorRole: role,
       text: `Assigned snag to ${assignedTo}.`,
       createdAt: 'Just now',
     };
@@ -188,8 +176,8 @@ export default function App() {
     if(!i) return;
     const newComment: IssueComment = {
       id: `comm-${Date.now()}`,
-      author: user.name || 'User',
-      authorRole: user.role,
+      author: 'Demo User',
+      authorRole: role,
       text,
       createdAt: 'Just now',
     };
@@ -203,8 +191,8 @@ export default function App() {
     if(!i) return;
     const newComment: IssueComment = {
       id: `comm-${Date.now()}`,
-      author: user.name || 'User',
-      authorRole: user.role,
+      author: 'Demo User',
+      authorRole: role,
       text: `Changed priority from ${i.priority} to ${priority}.`,
       createdAt: 'Just now',
     };
@@ -243,8 +231,8 @@ export default function App() {
       ownerId: targetOwnerId,
       projectId: newTask.projectId,
       projectName: newTask.projectName,
-      author: user.name || 'User',
-      authorRole: user.role,
+      author: 'Demo User',
+      authorRole: role,
       timestamp: 'Just now',
       room: newTask.room,
       description: `Task created from snag: "${newTask.title}" for ${newTask.assignedTo}.`,
@@ -327,7 +315,7 @@ export default function App() {
       ownerId: targetOwnerId,
       projectId: targetTask.projectId,
       projectName: targetTask.projectName,
-      author: user.name || 'Site Worker Team',
+      author: 'Demo Worker',
       authorRole: 'Site Worker',
       timestamp: 'Just now',
       room: targetTask.room,
@@ -370,11 +358,18 @@ export default function App() {
   const pendingTasksCount = tasks.filter((t) => t.projectId === workerSiteId && !t.isCompleted).length;
 
   return (
-    <div className="min-h-screen bg-[#F5F4F0] text-[#1E2022] font-['Plus_Jakarta_Sans'] antialiased flex flex-col selection:bg-amber-200 selection:text-zinc-900">
-      <div className="bg-zinc-900 text-white p-2 text-center text-xs flex justify-between px-4">
-        <span>Logged in as: {user.name} ({role})</span>
-        <button onClick={async () => { await logOut(); setUser(null); }} className="underline">Sign out</button>
-      </div>
+    <div className={`min-h-screen ${isMobileFrame ? 'bg-stone-900 flex items-center justify-center p-4' : 'bg-[#F5F4F0]'} antialiased transition-all selection:bg-amber-200 selection:text-zinc-900`}>
+      <div className={isMobileFrame ? 'w-[400px] h-[800px] bg-[#F5F4F0] rounded-[3rem] shadow-2xl overflow-hidden border-[8px] border-zinc-800 relative flex flex-col' : 'w-full h-screen flex flex-col bg-[#F5F4F0] relative'}>
+        {isMobileFrame && <div className="absolute top-0 inset-x-0 h-6 bg-zinc-800 rounded-b-3xl w-40 mx-auto z-50 pointer-events-none"></div>}
+        
+        <DevRoleSwitcher 
+          currentRole={role} 
+          onRoleChange={setRole} 
+          workerSiteId={workerSiteId}
+          onWorkerSiteChange={setWorkerSiteId}
+          isMobileFrame={isMobileFrame}
+          onToggleMobileFrame={() => setIsMobileFrame(!isMobileFrame)}
+        />
       <Header
         currentRole={role}
         workerProjectName={currentWorkerProject?.name}
@@ -435,7 +430,6 @@ export default function App() {
                 <MoreView
                   issues={issues}
                   projects={projects}
-                  currentUser={user}
                   onResolveIssue={handleResolveIssue}
                   onSelectProject={(p) => setSelectedProjectForModal(p)}
                   onOpenReportIssueModal={() => setActionModalType('issue')}
@@ -482,7 +476,7 @@ export default function App() {
               )}
               {workerTab === 'Profile' && (
                 <ProfileView
-                  assignedProjects={projects.filter((p) => p.siteManager.includes(user.name) || p.id === workerSiteId)}
+                  assignedProjects={projects.filter((p) => p.siteManager.length > 0 || p.id === workerSiteId)}
                   onSelectProject={(p) => setSelectedProjectForModal(p)}
                   supervisorName={currentWorkerProject?.siteManager || 'Supervisor'}
                 />
@@ -611,6 +605,7 @@ export default function App() {
         tasks={tasks.filter((t) => t.projectId === currentWorkerProject?.id)}
         onAddIssue={handleAddIssue}
       />
+      </div>
     </div>
   );
 }

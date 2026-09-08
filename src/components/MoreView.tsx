@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { IssueReport, Project, User } from '../types';
+import { IssueReport, Project } from '../types';
 import {
   AlertTriangle,
   Users,
@@ -12,15 +12,11 @@ import {
   ChevronRight,
   ExternalLink,
   Filter,
-  UserPlus,
 } from 'lucide-react';
-import { db } from '../lib/firebase';
-import { doc, setDoc } from 'firebase/firestore';
 
 interface MoreViewProps {
   issues: IssueReport[];
   projects: Project[];
-  currentUser: User | null;
   onResolveIssue: (issueId: string) => void;
   onSelectProject: (project: Project) => void;
   onOpenReportIssueModal: () => void;
@@ -29,49 +25,13 @@ interface MoreViewProps {
 export const MoreView: React.FC<MoreViewProps> = ({
   issues,
   projects,
-  currentUser,
   onResolveIssue,
   onSelectProject,
   onOpenReportIssueModal,
 }) => {
   const [activeSection, setActiveSection] = useState<'issues' | 'team' | 'clients'>('issues');
   
-  // Worker Invite State
-  const [isInviting, setIsInviting] = useState(false);
-  const [invitePhone, setInvitePhone] = useState('');
-  const [inviteStatus, setInviteStatus] = useState<{type: 'success' | 'error', msg: string} | null>(null);
-
   const openIssues = issues.filter((i) => i.status !== 'Resolved');
-
-  const handleInviteWorker = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentUser) return;
-    
-    try {
-      setIsInviting(true);
-      setInviteStatus(null);
-      // Format phone number
-      const formattedPhone = invitePhone.startsWith('+') ? invitePhone : `+${invitePhone}`;
-      
-      const inviteRef = doc(db, 'invites', formattedPhone);
-      await setDoc(inviteRef, {
-        employerId: currentUser.id,
-        createdAt: new Date().toISOString(),
-        status: 'pending'
-      });
-      
-      const inviteLink = `${window.location.origin}/?phone=${encodeURIComponent(formattedPhone)}`;
-      setInviteStatus({
-        type: 'success',
-        msg: `Invitation created! Send this link to the worker: ${inviteLink}`
-      });
-      setInvitePhone('');
-    } catch (err: any) {
-      setInviteStatus({ type: 'error', msg: err.message || 'Failed to create invite' });
-    } finally {
-      setIsInviting(false);
-    }
-  };
 
   return (
     <div className="space-y-5 pb-8">
@@ -206,36 +166,7 @@ export const MoreView: React.FC<MoreViewProps> = ({
       {/* SECTION 2: TEAM / SUPERVISORS */}
       {activeSection === 'team' && (
         <div className="space-y-3">
-          
           <div className="bg-white rounded-2xl border border-[#EAE7E1] p-5 shadow-sm space-y-3">
-            <h3 className="font-semibold text-sm flex items-center gap-2"><UserPlus className="w-4 h-4 text-[#A68B67]" /> Invite New Worker</h3>
-            <p className="text-xs text-[#7A756F]">Enter their phone number to generate an invite link.</p>
-            <form onSubmit={handleInviteWorker} className="space-y-3">
-              <input
-                type="tel"
-                placeholder="+1 234 567 8900"
-                value={invitePhone}
-                onChange={(e) => setInvitePhone(e.target.value)}
-                className="w-full text-sm p-3 rounded-xl border border-[#EAE7E1] focus:outline-none focus:border-[#A68B67]"
-                required
-              />
-              <button
-                type="submit"
-                disabled={isInviting || !invitePhone}
-                className="w-full bg-[#2D2D2D] text-white py-2.5 rounded-xl font-medium text-sm hover:bg-black transition-colors disabled:opacity-50"
-              >
-                {isInviting ? 'Generating...' : 'Generate Invite Link'}
-              </button>
-            </form>
-            {inviteStatus && (
-              <div className={`p-3 rounded-xl text-xs break-all ${inviteStatus.type === 'success' ? 'bg-[#E8F2EA] text-[#5B7B61]' : 'bg-[#FBEAEA] text-[#B85C4E]'}`}>
-                {inviteStatus.msg}
-              </div>
-            )}
-          </div>
-
-          <div className="bg-white rounded-2xl border border-[#EAE7E1] p-5 shadow-sm space-y-3">
-
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-[#D6D0C7] text-[#2D2D2D] font-bold flex items-center justify-center text-xs">
