@@ -33,9 +33,16 @@ import { WorkerProgressUpdateModal, ProgressChoice } from './components/worker/W
 import { WorkerPhotoUploadModal } from './components/worker/WorkerPhotoUploadModal';
 import { WorkerMaterialRequestModal } from './components/worker/WorkerMaterialRequestModal';
 import { WorkerReportProblemModal } from './components/worker/WorkerReportProblemModal';
+import { Login } from './components/Login';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth, db } from './lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { subscribeToCollection, updateDocument, addDocument, seedInitialData } from './lib/dataService';
 
 export default function App() {
+  const [user, setUser] = useState<any>(null);
+  const [loadingAuth, setLoadingAuth] = useState(true);
+
   const [role, setRole] = useState<UserRole>('OWNER');
 
   const [ownerTab, setOwnerTab] = useState<OwnerTab>('Home');
@@ -66,31 +73,62 @@ export default function App() {
   const [selectedIssueIdForNav, setSelectedIssueIdForNav] = useState<string | null>(null);
   const [isMobileFrame, setIsMobileFrame] = useState<boolean>(true);
 
-  const targetOwnerId = 'demo-owner-ready-to-use';
-
-  // Firebase Subscriptions
+  
   useEffect(() => {
-    // Attempt seed
-    seedInitialData(targetOwnerId);
+    const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
+      if (authUser) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', authUser.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            setUser(userData);
+            setRole(userData.role);
+          } else {
+            setUser(null); // Or trigger a login refresh
+          }
+        } catch (e) {
+          console.error("Error fetching user profile", e);
+        }
+      } else {
+        setUser(null);
+      }
+      setLoadingAuth(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
-    const unsubProjects = subscribeToCollection<Project>('projects', targetOwnerId, setProjects);
-    const unsubTasks = subscribeToCollection<Task>('tasks', targetOwnerId, setTasks);
-    const unsubMaterials = subscribeToCollection<MaterialRequest>('materialRequests', targetOwnerId, setMaterialRequests);
-    const unsubIssues = subscribeToCollection<IssueReport>('issueReports', targetOwnerId, setIssues);
-    const unsubUpdates = subscribeToCollection<SiteUpdate>('siteUpdates', targetOwnerId, setUpdates);
-    const unsubFiles = subscribeToCollection<ProjectFile>('projectFiles', targetOwnerId, setFiles);
-
+  useEffect(() => {
+    if (!user) return;
+    const orgId = user.organizationId;
+    
+    const unsubProjects = subscribeToCollection('projects', orgId, setProjects);
+    const unsubTasks = subscribeToCollection('tasks', orgId, setTasks);
+    const unsubMaterials = subscribeToCollection('material_requests', orgId, setMaterialRequests);
+    const unsubIssues = subscribeToCollection('issues', orgId, setIssues);
+    const unsubUpdates = subscribeToCollection('progress_updates', orgId, setUpdates);
+    
     return () => {
       unsubProjects();
       unsubTasks();
       unsubMaterials();
       unsubIssues();
       unsubUpdates();
-      unsubFiles();
     };
-  }, []);
+  }, [user]);
+  
 
   const currentWorkerProject = projects.find((p) => p.id === workerSiteId) || projects[0];
+
+  if (loadingAuth) {
+    return <div className="min-h-screen bg-[#F5F4F0] flex items-center justify-center">Loading...</div>;
+  }
+
+  if (!user) {
+    return <Login onLoginSuccess={(u) => {
+      setUser(u);
+      setRole(u.role);
+    }} />;
+  }
 
   // Actions
   const handleToggleTaskCompletion = async (taskId: string) => {
@@ -210,7 +248,7 @@ export default function App() {
     const newTaskId = `task-${Date.now()}`;
     const newTask: Task = {
       id: newTaskId,
-      ownerId: targetOwnerId,
+      ownerId: user?.organizationId || '',
       projectId: targetIssue.projectId,
       projectName: targetIssue.projectName,
       title: taskData.title || `Fix: ${targetIssue.title}`,
@@ -228,7 +266,7 @@ export default function App() {
 
     const newUpdate: SiteUpdate = {
       id: `up-${Date.now()}`,
-      ownerId: targetOwnerId,
+      ownerId: user?.organizationId || '',
       projectId: newTask.projectId,
       projectName: newTask.projectName,
       author: 'Demo User',
@@ -250,18 +288,18 @@ export default function App() {
   };
 
   const handleAddUpdate = async (newUpdate: SiteUpdate) => {
-    await addDocument('siteUpdates', newUpdate.id, { ...newUpdate, ownerId: targetOwnerId });
+    await addDocument('siteUpdates', newUpdate.id, { ...newUpdate, ownerId: user?.organizationId || '' });
   };
 
   const handleAddMaterialRequest = async (newRequest: MaterialRequest) => {
-    await addDocument('materialRequests', newRequest.id, { ...newRequest, ownerId: targetOwnerId });
+    await addDocument('materialRequests', newRequest.id, { ...newRequest, ownerId: user?.organizationId || '' });
   };
 
   const handleAddIssue = async (newIssue: IssueReport) => {
-    await addDocument('issueReports', newIssue.id, { ...newIssue, ownerId: targetOwnerId });
+    await addDocument('issueReports', newIssue.id, { ...newIssue, ownerId: user?.organizationId || '' });
     const newUpdate: SiteUpdate = {
       id: `up-${Date.now()}`,
-      ownerId: targetOwnerId,
+      ownerId: user?.organizationId || '',
       projectId: newIssue.projectId,
       projectName: newIssue.projectName,
       author: newIssue.reportedBy,
@@ -277,11 +315,11 @@ export default function App() {
   };
 
   const handleAddProject = async (newProject: Project) => {
-    await addDocument('projects', newProject.id, { ...newProject, ownerId: targetOwnerId });
+    await addDocument('projects', newProject.id, { ...newProject, ownerId: user?.organizationId || '' });
   };
 
   const handleAddTask = async (newTask: Task) => {
-    await addDocument('tasks', newTask.id, { ...newTask, ownerId: targetOwnerId });
+    await addDocument('tasks', newTask.id, { ...newTask, ownerId: user?.organizationId || '' });
   };
 
   const handleSaveWorkerProgressUpdate = async (
@@ -312,7 +350,7 @@ export default function App() {
 
     const newUpdate: SiteUpdate = {
       id: `up-${Date.now()}`,
-      ownerId: targetOwnerId,
+      ownerId: user?.organizationId || '',
       projectId: targetTask.projectId,
       projectName: targetTask.projectName,
       author: 'Demo Worker',
@@ -362,14 +400,7 @@ export default function App() {
       <div className={isMobileFrame ? 'w-[400px] h-[800px] bg-[#F5F4F0] rounded-[3rem] shadow-2xl overflow-hidden border-[8px] border-zinc-800 relative flex flex-col' : 'w-full h-screen flex flex-col bg-[#F5F4F0] relative'}>
         {isMobileFrame && <div className="absolute top-0 inset-x-0 h-6 bg-zinc-800 rounded-b-3xl w-40 mx-auto z-50 pointer-events-none"></div>}
         
-        <DevRoleSwitcher 
-          currentRole={role} 
-          onRoleChange={setRole} 
-          workerSiteId={workerSiteId}
-          onWorkerSiteChange={setWorkerSiteId}
-          isMobileFrame={isMobileFrame}
-          onToggleMobileFrame={() => setIsMobileFrame(!isMobileFrame)}
-        />
+        
       <Header
         currentRole={role}
         workerProjectName={currentWorkerProject?.name}

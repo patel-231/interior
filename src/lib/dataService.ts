@@ -10,38 +10,7 @@ import {
   INITIAL_FILES,
 } from '../mockData';
 
-export const seedInitialData = async (ownerId: string) => {
-  try {
-    const projectsRef = collection(db, 'projects');
-    const q = query(projectsRef, where('ownerId', '==', ownerId));
-    const snapshot = await getDocs(q);
-    
-    if (snapshot.empty) {
-      // Seed Projects
-      for (const p of INITIAL_PROJECTS) {
-        await setDoc(doc(db, 'projects', p.id), { ...p, ownerId });
-      }
-      for (const t of INITIAL_TASKS) {
-        await setDoc(doc(db, 'tasks', t.id), { ...t, ownerId });
-      }
-      for (const m of INITIAL_MATERIAL_REQUESTS) {
-        await setDoc(doc(db, 'materialRequests', m.id), { ...m, ownerId });
-      }
-      for (const i of INITIAL_ISSUES) {
-        await setDoc(doc(db, 'issueReports', i.id), { ...i, ownerId });
-      }
-      for (const u of INITIAL_UPDATES) {
-        await setDoc(doc(db, 'siteUpdates', u.id), { ...u, ownerId });
-      }
-      for (const f of INITIAL_FILES) {
-        await setDoc(doc(db, 'projectFiles', f.id), { ...f, ownerId });
-      }
-      console.log('Seeded initial data!');
-    }
-  } catch (error) {
-    console.error("Error seeding data:", error);
-  }
-};
+export const seedInitialData = async () => {};
 
 export const subscribeToCollection = <T>(
   collectionName: string, 

@@ -1,0 +1,200 @@
+{
+  "entities": {
+    "organization": {
+      "title": "Organization",
+      "description": "An organization owning projects",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "name", "createdAt"]
+    },
+    "user": {
+      "title": "User",
+      "description": "A user in the system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["OWNER", "ADMIN", "SUPERVISOR", "WORKER"] },
+        "profilePhoto": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "organizationId", "name", "role", "createdAt"]
+    },
+    "project": {
+      "title": "Project",
+      "description": "A construction project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "projectName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "clientName": { "type": "string", "maxLength": 100 },
+        "clientPhone": { "type": "string", "maxLength": 50 },
+        "siteAddress": { "type": "string", "maxLength": 200 },
+        "projectType": { "type": "string", "maxLength": 50 },
+        "budget": { "type": "number" },
+        "startDate": { "type": "string" },
+        "deadline": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "organizationId", "projectName", "createdAt", "updatedAt"]
+    },
+    "project_member": {
+      "title": "Project Member",
+      "description": "Assignment of user to project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "projectId": { "type": "string" },
+        "userId": { "type": "string" },
+        "role": { "type": "string" }
+      },
+      "required": ["id", "organizationId", "projectId", "userId", "role"]
+    },
+    "task": {
+      "title": "Task",
+      "description": "Task for a project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "projectId": { "type": "string" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "category": { "type": "string", "maxLength": 50 },
+        "assignedTo": { "type": "string" },
+        "status": { "type": "string" },
+        "progress": { "type": "number" },
+        "startDate": { "type": "string" },
+        "deadline": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "organizationId", "projectId", "title", "createdAt", "updatedAt"]
+    },
+    "progress_update": {
+      "title": "Progress Update",
+      "description": "Update on a task",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "projectId": { "type": "string" },
+        "taskId": { "type": "string" },
+        "workerId": { "type": "string" },
+        "progress": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "photos": { "type": "array" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "organizationId", "projectId", "taskId", "workerId", "createdAt"]
+    },
+    "material_request": {
+      "title": "Material Request",
+      "description": "Request for materials",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "projectId": { "type": "string" },
+        "requestedBy": { "type": "string" },
+        "materialName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "category": { "type": "string", "maxLength": 50 },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string", "maxLength": 20 },
+        "requiredDate": { "type": "string" },
+        "priority": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "URGENT"] },
+        "note": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["REQUESTED", "UNDER_REVIEW", "APPROVED", "REJECTED", "ORDERED", "DISPATCHED", "DELIVERED", "RECEIVED"] },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "organizationId", "projectId", "requestedBy", "materialName", "quantity", "status", "createdAt", "updatedAt"]
+    },
+    "issue": {
+      "title": "Issue",
+      "description": "Reported issue",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "projectId": { "type": "string" },
+        "taskId": { "type": "string" },
+        "reportedBy": { "type": "string" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "category": { "type": "string", "maxLength": 50 },
+        "priority": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "status": { "type": "string", "enum": ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"] },
+        "assignedTo": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" },
+        "photos": { "type": "array" }
+      },
+      "required": ["id", "organizationId", "projectId", "reportedBy", "title", "status", "createdAt", "updatedAt"]
+    },
+    "notification": {
+      "title": "Notification",
+      "description": "Notification for user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "organizationId", "userId", "title", "read", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/organizations/{organizationId}": {
+      "schema": "organization",
+      "description": "Organizations"
+    },
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "Users"
+    },
+    "/projects/{projectId}": {
+      "schema": "project",
+      "description": "Projects"
+    },
+    "/project_members/{memberId}": {
+      "schema": "project_member",
+      "description": "Project Members"
+    },
+    "/tasks/{taskId}": {
+      "schema": "task",
+      "description": "Tasks"
+    },
+    "/progress_updates/{updateId}": {
+      "schema": "progress_update",
+      "description": "Progress Updates"
+    },
+    "/material_requests/{requestId}": {
+      "schema": "material_request",
+      "description": "Material Requests"
+    },
+    "/issues/{issueId}": {
+      "schema": "issue",
+      "description": "Issues"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "notification",
+      "description": "Notifications"
+    }
+  }
+}

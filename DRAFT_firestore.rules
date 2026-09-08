@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function getUser(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data;
+    }
+
+    function isOrgMember(orgId) {
+      return isSignedIn() && getUser(request.auth.uid).organizationId == orgId;
+    }
+
+    function isOrgAdmin(orgId) {
+      let user = getUser(request.auth.uid);
+      return isSignedIn() && user.organizationId == orgId && (user.role == 'OWNER' || user.role == 'ADMIN');
+    }
+
+    function isProjectMember(projectId, orgId) {
+      let isMember = exists(/databases/$(database)/documents/project_members/$(projectId + '_' + request.auth.uid));
+      return isOrgMember(orgId) && (isOrgAdmin(orgId) || isMember);
+    }
+
+    // Organizations
+    match /organizations/{organizationId} {
+      allow read: if isOrgMember(organizationId);
+      // Setup/creation might need an exception or function, but let's assume it's created via server or we allow authenticated users to create if they have none.
+      allow create: if isSignedIn() && incoming().id == organizationId && incoming().keys().hasAll(['id', 'name', 'createdAt']) && incoming().keys().size() == 3;
+      allow update: if isOrgAdmin(organizationId) && incoming().diff(existing()).affectedKeys().hasOnly(['name']);
+    }
+
+    // Users
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isOrgMember(existing().organizationId));
+      
+      // Allow users to create their own profile, but they can't set their role to OWNER/ADMIN without verification, wait, how does first user work? Let's say we allow them to set OWNER if they are creating it.
+      allow create: if isSignedIn() && request.auth.uid == userId && incoming().id == userId && incoming().keys().hasAll(['id', 'organizationId', 'name', 'role', 'createdAt']);
+      
+      allow update: if isSignedIn() && (
+        (isOrgAdmin(existing().organizationId) && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'organizationId'])) ||
+        (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'profilePhoto']))
+      );
+    }
+
+    // Projects
+    match /projects/{projectId} {
+      allow read: if isProjectMember(projectId, existing().organizationId);
+      allow create: if isOrgAdmin(incoming().organizationId) && incoming().id == projectId && incoming().keys().hasAll(['id', 'organizationId', 'projectName', 'createdAt', 'updatedAt']);
+      allow update: if isOrgAdmin(existing().organizationId) && incoming().diff(existing()).affectedKeys().hasOnly(['projectName', 'clientName', 'clientPhone', 'siteAddress', 'projectType', 'budget', 'startDate', 'deadline', 'status', 'updatedAt']);
+      allow delete: if isOrgAdmin(existing().organizationId);
+    }
+
+    // Project Members
+    match /project_members/{memberId} {
+      allow read: if isOrgMember(existing().organizationId);
+      allow create: if isOrgAdmin(incoming().organizationId);
+      allow delete: if isOrgAdmin(existing().organizationId);
+    }
+
+    // Tasks
+    match /tasks/{taskId} {
+      allow read: if isProjectMember(existing().projectId, existing().organizationId);
+      allow create: if isOrgAdmin(incoming().organizationId) && incoming().id == taskId;
+      allow update: if isProjectMember(existing().projectId, existing().organizationId) && (
+        isOrgAdmin(existing().organizationId) || 
+        (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'progress', 'updatedAt']))
+      );
+      allow delete: if isOrgAdmin(existing().organizationId);
+    }
+
+    // Progress Updates
+    match /progress_updates/{updateId} {
+      allow read: if isProjectMember(existing().projectId, existing().organizationId);
+      allow create: if isProjectMember(incoming().projectId, incoming().organizationId) && incoming().workerId == request.auth.uid && incoming().id == updateId;
+    }
+
+    // Material Requests
+    match /material_requests/{requestId} {
+      allow read: if isProjectMember(existing().projectId, existing().organizationId);
+      allow create: if isProjectMember(incoming().projectId, incoming().organizationId) && incoming().requestedBy == request.auth.uid && incoming().id == requestId;
+      allow update: if isProjectMember(existing().projectId, existing().organizationId) && (
+        isOrgAdmin(existing().organizationId) ||
+        (existing().requestedBy == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['materialName', 'quantity', 'unit', 'priority', 'note', 'updatedAt']))
+      );
+    }
+
+    // Issues
+    match /issues/{issueId} {
+      allow read: if isProjectMember(existing().projectId, existing().organizationId);
+      allow create: if isProjectMember(incoming().projectId, incoming().organizationId) && incoming().reportedBy == request.auth.uid && incoming().id == issueId;
+      allow update: if isProjectMember(existing().projectId, existing().organizationId) && (
+        isOrgAdmin(existing().organizationId) ||
+        (existing().reportedBy == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'priority', 'status', 'updatedAt', 'photos']))
+      );
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && existing().userId == request.auth.uid;
+      allow create: if isOrgAdmin(incoming().organizationId);
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+    }
+  }
+}

@@ -1,72 +1,8 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper functions
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-    
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-    }
-    
-    function isOwner() {
-      return isAuthenticated() && getUserData().role == 'owner';
-    }
-    
-    function isWorker() {
-      return isAuthenticated() && getUserData().role == 'worker';
-    }
-
-    function canAccessData(resourceData) {
-      return (isOwner() && resourceData.ownerId == request.auth.uid) || 
-             (isWorker() && resourceData.ownerId == getUserData().employerId);
-    }
-
-    function canCreateData(requestData) {
-      return (isOwner() && requestData.ownerId == request.auth.uid) || 
-             (isWorker() && requestData.ownerId == getUserData().employerId);
-    }
-
-    match /invites/{phoneNumber} {
-      allow read: if true; // Allows the login screen to read invites
-      allow create: if isOwner() && request.resource.data.employerId == request.auth.uid;
-      allow update, delete: if isOwner() && resource.data.employerId == request.auth.uid;
-    }
-
-    match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && request.auth.uid == userId;
-    }
-
-    match /projects/{document} {
-      allow read, update, delete: if canAccessData(resource.data);
-      allow create: if canCreateData(request.resource.data);
-    }
-
-    match /tasks/{document} {
-      allow read, update, delete: if canAccessData(resource.data);
-      allow create: if canCreateData(request.resource.data);
-    }
-
-    match /projectFiles/{document} {
-      allow read, update, delete: if canAccessData(resource.data);
-      allow create: if canCreateData(request.resource.data);
-    }
-
-    match /materialRequests/{document} {
-      allow read, update, delete: if canAccessData(resource.data);
-      allow create: if canCreateData(request.resource.data);
-    }
-
-    match /issueReports/{document} {
-      allow read, update, delete: if canAccessData(resource.data);
-      allow create: if canCreateData(request.resource.data);
-    }
-
-    match /siteUpdates/{document} {
-      allow read, update, delete: if canAccessData(resource.data);
-      allow create: if canCreateData(request.resource.data);
+    match /{document=**} {
+      allow read, write: if request.auth != null;
     }
   }
 }
